@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth.store';
 import { useUserStore } from '@/stores/user.store';
@@ -7,10 +7,13 @@ import { calculateHealthScore, getScoreBreakdown } from '@/lib/scoring';
 import { ScoreRing } from '@/components/ui/ScoreRing';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Label } from '@/components/ui/Label';
 import { Badge } from '@/components/ui/Badge';
 import { Progress } from '@/components/ui/Progress';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { formatCurrency, getScoreColor } from '@/lib/utils';
+import { formatCurrency, getScoreColor, estimateMonthlyExpenses } from '@/lib/utils';
+import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import {
   TrendingUp,
   TrendingDown,
@@ -26,40 +29,92 @@ import {
   MessageSquare,
   FlaskConical,
   ArrowRight,
+  Plus,
+  X,
+  Receipt,
 } from 'lucide-react';
 
 export function DashboardPage() {
   const { user } = useAuthStore();
   const { profile, goals, fetchProfile, fetchGoals, loadingProfile, loadingGoals } = useUserStore();
-  const { decisions, fetchDecisions } = useDashboardStore();
-  const [healthScore, setHealthScore] = useState(0);
+  const { decisions, transactions, fetchDecisions, fetchTransactions, addTransaction } = useDashboardStore();
+  const [healthScore, setHealthScore] = useState(null);
   const [breakdown, setBreakdown] = useState([]);
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
 
   useEffect(() => {
     if (user?.uid) {
       fetchProfile(user.uid);
       fetchGoals(user.uid);
       fetchDecisions(user.uid);
+      fetchTransactions(user.uid);
     }
   }, [user]);
 
-  useEffect(() => {
-    if (profile) {
-      const score = calculateHealthScore(profile, goals);
-      setHealthScore(score);
-      setBreakdown(getScoreBreakdown(profile, goals));
-    }
-  }, [profile, goals]);
+  const estimatedExpenses = useMemo(() => estimateMonthlyExpenses(transactions), [transactions]);
 
-  const currency = profile?.currency || 'USD';
-  const mode = profile?.interactionMode || 'journey';
+  const effectiveProfile = useMemo(() => {
+    if (!profile) return null;
+    return {
+      ...profile,
+      monthlyExpenses: profile.monthlyExpenses ?? estimatedExpenses,
+    };
+  }, [profile, estimatedExpenses]);
+
+  useEffect(() => {
+    if (effectiveProfile) {
+      const score = calculateHealthScore(effectiveProfile, goals);
+      setHealthScore(score);
+      setBreakdown(getScoreBreakdown(effectiveProfile, goals));
+    }
+  }, [effectiveProfile, goals]);
+
+  const currency = effectiveProfile?.currency || 'USD';
+  const mode = effectiveProfile?.interactionMode || 'journey';
+
+  const incomeValue =
+    effectiveProfile?.monthlyIncome != null
+      ? formatCurrency(effectiveProfile.monthlyIncome, currency)
+      : 'Not Set';
+
+  const expensesValue =
+    profile?.monthlyExpenses != null
+      ? formatCurrency(profile.monthlyExpenses, currency)
+      : transactions.length > 0
+        ? `${formatCurrency(estimatedExpenses, currency)} (estimated)`
+        : 'Start Tracking';
+
+  const savingsValue =
+    effectiveProfile?.totalSavings != null
+      ? formatCurrency(effectiveProfile.totalSavings, currency)
+      : 'Not Set';
+
+  const monthlyCapacity =
+    (effectiveProfile?.monthlyIncome ?? 0) - (effectiveProfile?.monthlyExpenses ?? 0);
+
+  const capacityValue =
+    effectiveProfile?.monthlyIncome != null || effectiveProfile?.monthlyExpenses != null
+      ? formatCurrency(monthlyCapacity, currency)
+      : 'Not Available Yet';
+
+  const capacityTrend =
+    effectiveProfile?.monthlyIncome != null || effectiveProfile?.monthlyExpenses != null
+      ? monthlyCapacity >= 0
+        ? 'up'
+        : 'down'
+      : null;
+
+  const activeGoals = goals.filter((g) => g.status === 'active');
+
+  const showWelcomeSetup =
+    !effectiveProfile?.monthlyIncome &&
+    !effectiveProfile?.totalSavings &&
+    !effectiveProfile?.totalDebt &&
+    transactions.length === 0;
 
   if (loadingProfile || loadingGoals) {
     return <DashboardSkeleton />;
   }
-
-  const monthlySavings = (profile?.monthlyIncome || 0) - (profile?.monthlyExpenses || 0);
-  const activeGoals = goals.filter((g) => g.status === 'active');
 
   return (
     <div className="space-y-6">
@@ -67,7 +122,7 @@ export function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
-            Welcome back, {profile?.name || 'there'}!
+            Welcome back, {effectiveProfile?.name || 'there'}!
           </h1>
           <p className="text-slate-500 mt-1">
             {mode === 'decision'
@@ -83,27 +138,49 @@ export function DashboardPage() {
         </Link>
       </div>
 
+      {/* First-time welcome setup */}
+      {showWelcomeSetup && <WelcomeSetup onTrackExpense={() => setShowExpenseModal(true)} />}
+
       {/* Shared: Top Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Wallet} label="Monthly Income" value={formatCurrency(profile?.monthlyIncome || 0, currency)} color="text-emerald-600" bgColor="bg-emerald-50" />
-        <StatCard icon={CreditCard} label="Monthly Expenses" value={formatCurrency(profile?.monthlyExpenses || 0, currency)} color="text-rose-600" bgColor="bg-rose-50" />
-        <StatCard icon={PiggyBank} label="Total Savings" value={formatCurrency(profile?.totalSavings || 0, currency)} trend="up" color="text-primary-600" bgColor="bg-primary-50" />
         <StatCard
-          icon={monthlySavings >= 0 ? TrendingUp : TrendingDown}
+          icon={Wallet}
+          label="Monthly Income"
+          value={incomeValue}
+          color="text-emerald-600"
+          bgColor="bg-emerald-50"
+        />
+        <StatCard
+          icon={CreditCard}
+          label="Monthly Expenses"
+          value={expensesValue}
+          color="text-rose-600"
+          bgColor="bg-rose-50"
+        />
+        <StatCard
+          icon={PiggyBank}
+          label="Total Savings"
+          value={savingsValue}
+          trend="up"
+          color="text-primary-600"
+          bgColor="bg-primary-50"
+        />
+        <StatCard
+          icon={capacityTrend === 'down' ? TrendingDown : TrendingUp}
           label="Monthly Capacity"
-          value={formatCurrency(monthlySavings, currency)}
-          trend={monthlySavings >= 0 ? 'up' : 'down'}
-          color={monthlySavings >= 0 ? 'text-emerald-600' : 'text-rose-600'}
-          bgColor={monthlySavings >= 0 ? 'bg-emerald-50' : 'bg-rose-50'}
+          value={capacityValue}
+          trend={capacityTrend}
+          color={capacityTrend === 'down' ? 'text-rose-600' : 'text-emerald-600'}
+          bgColor={capacityTrend === 'down' ? 'bg-rose-50' : 'bg-emerald-50'}
         />
       </div>
 
       {/* Mode-specific content */}
       {mode === 'decision' ? (
-        <DecisionModeContent profile={profile} decisions={decisions} currency={currency} />
+        <DecisionModeContent profile={effectiveProfile} decisions={decisions} currency={currency} />
       ) : (
         <JourneyModeContent
-          profile={profile}
+          profile={effectiveProfile}
           goals={goals}
           activeGoals={activeGoals}
           healthScore={healthScore}
@@ -127,49 +204,268 @@ export function DashboardPage() {
           <CardDescription>Based on your current financial data</CardDescription>
         </CardHeader>
         <CardContent>
-          <InsightsPanel profile={profile} goals={goals} currency={currency} />
+          <InsightsPanel profile={effectiveProfile} goals={goals} currency={currency} />
         </CardContent>
       </Card>
+
+      {/* Add first expense modal */}
+      {showExpenseModal && (
+        <AddExpenseModal
+          currency={currency}
+          onClose={() => setShowExpenseModal(false)}
+          onSave={async (data) => {
+            if (!user?.uid) return;
+            await addTransaction(user.uid, data);
+            await fetchTransactions(user.uid);
+            setShowExpenseModal(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── Welcome Setup (first login) ───────────────────── */
+function WelcomeSetup({ onTrackExpense }) {
+  const cards = [
+    {
+      title: 'Add Monthly Income',
+      description: 'So LifePilot can personalise your plan.',
+      icon: Wallet,
+      action: { type: 'link', to: '/settings', label: 'Add Income' },
+    },
+    {
+      title: 'Add Savings',
+      description: 'Track what you have already saved.',
+      icon: PiggyBank,
+      action: { type: 'link', to: '/settings', label: 'Add Savings' },
+    },
+    {
+      title: 'Add Debt',
+      description: 'Get a complete picture of liabilities.',
+      icon: CreditCard,
+      action: { type: 'link', to: '/settings', label: 'Add Debt' },
+    },
+    {
+      title: 'Track First Expense',
+      description: 'Start building your spending picture.',
+      icon: Receipt,
+      action: { type: 'button', onClick: onTrackExpense, label: 'Add Expense' },
+    },
+    {
+      title: 'Create Financial Goal',
+      description: 'Set something to work toward.',
+      icon: Target,
+      action: { type: 'link', to: '/goals', label: 'Create Goal' },
+    },
+  ];
+
+  return (
+    <Card className="bg-gradient-to-br from-primary-50 to-white border-primary-200">
+      <CardContent className="pt-6">
+        <div className="flex items-start gap-3 mb-5">
+          <div className="p-2.5 rounded-xl bg-primary-100">
+            <Sparkles className="w-6 h-6 text-primary-700" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Welcome to LifePilot AI</h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Complete a few quick steps to build your financial profile. You can do these anytime.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {cards.map((card, index) => {
+            const Icon = card.icon;
+            const number = index + 1;
+            return (
+              <div
+                key={card.title}
+                className="relative bg-white rounded-xl border border-slate-200 p-4 hover:border-primary-300 transition-colors"
+              >
+                <span className="absolute top-3 right-3 text-xs font-bold text-slate-300">
+                  {String(number).padStart(2, '0')}
+                </span>
+                <div className="p-2 rounded-lg bg-slate-50 w-fit mb-3">
+                  <Icon className="w-5 h-5 text-primary-600" />
+                </div>
+                <h3 className="font-semibold text-slate-900 text-sm">{card.title}</h3>
+                <p className="text-xs text-slate-500 mt-1 mb-3">{card.description}</p>
+                {card.action.type === 'link' ? (
+                  <Link
+                    to={card.action.to}
+                    className="inline-flex items-center justify-center gap-1 w-full rounded-lg bg-primary-600 text-white text-sm font-medium px-3 py-2 hover:bg-primary-700 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> {card.action.label}
+                  </Link>
+                ) : (
+                  <Button size="sm" className="w-full gap-1" onClick={card.action.onClick}>
+                    <Plus className="w-3.5 h-3.5" /> {card.action.label}
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ─── Add First Expense Modal ───────────────────────── */
+function AddExpenseModal({ currency, onClose, onSave }) {
+  const [form, setForm] = useState({
+    description: '',
+    amount: '',
+    category: EXPENSE_CATEGORIES[0] || 'Other',
+    date: new Date().toISOString().split('T')[0],
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.description || !form.amount) return;
+    setSaving(true);
+    try {
+      await onSave({
+        description: form.description,
+        amount: Number(form.amount),
+        type: 'expense',
+        category: form.category,
+        date: new Date(form.date).getTime(),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 pb-0">
+          <h2 className="text-lg font-bold text-slate-900">Track Your First Expense</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="expense-description">Description</Label>
+            <Input
+              id="expense-description"
+              placeholder="e.g. Grocery shopping"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-amount">Amount ({currency})</Label>
+            <Input
+              id="expense-amount"
+              type="number"
+              min="0"
+              placeholder="0"
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-category">Category</Label>
+            <select
+              id="expense-category"
+              className="flex h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+            >
+              {EXPENSE_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="expense-date">Date</Label>
+            <Input
+              id="expense-date"
+              type="date"
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" className="flex-1" disabled={!form.description || !form.amount || saving}>
+              {saving ? 'Saving...' : 'Save Expense'}
+            </Button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
 
 /* ─── Journey Mode Content ──────────────────────────── */
 function JourneyModeContent({ profile, goals, activeGoals, healthScore, breakdown, currency }) {
+  const scoreAvailable = healthScore != null;
+
   return (
     <>
       {/* Health Score + Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="flex flex-col items-center justify-center py-8">
           <h3 className="text-lg font-semibold text-slate-900 mb-4">Financial Health</h3>
-          <ScoreRing score={healthScore} size={160} strokeWidth={12} />
-          <div className="mt-4 grid grid-cols-3 gap-4 text-center text-xs">
-            <div><span className="inline-block w-2 h-2 rounded-full bg-rose-500 mr-1" />0-40</div>
-            <div><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1" />41-70</div>
-            <div><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />71-100</div>
-          </div>
+          {scoreAvailable ? (
+            <>
+              <ScoreRing score={healthScore} size={160} strokeWidth={12} />
+              <div className="mt-4 grid grid-cols-3 gap-4 text-center text-xs">
+                <div><span className="inline-block w-2 h-2 rounded-full bg-rose-500 mr-1" />0-40</div>
+                <div><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1" />41-70</div>
+                <div><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />71-100</div>
+              </div>
+            </>
+          ) : (
+            <div className="text-center px-6">
+              <div className="p-4 rounded-full bg-slate-100 w-fit mx-auto mb-3">
+                <Sparkles className="w-8 h-8 text-slate-400" />
+              </div>
+              <p className="text-sm text-slate-500">
+                Complete your profile and track expenses to generate your Financial Health Score.
+              </p>
+            </div>
+          )}
         </Card>
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Score Breakdown</CardTitle>
-            <CardDescription>Estimated based on your current data</CardDescription>
+            <CardDescription>
+              {scoreAvailable ? 'Estimated based on your current data' : 'Add financial details to see your breakdown'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {breakdown.map((item) => {
-              const colorInfo = getScoreColor(item.score);
-              return (
-                <div key={item.label}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium text-slate-700">
-                      {item.label}
-                      <span className="text-xs text-slate-400 ml-2">({item.weight}%)</span>
-                    </span>
-                    <span className={`text-sm font-semibold ${colorInfo.text}`}>{item.score}/100</span>
+            {scoreAvailable ? (
+              breakdown.map((item) => {
+                const colorInfo = getScoreColor(item.score);
+                return (
+                  <div key={item.label}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium text-slate-700">
+                        {item.label}
+                        <span className="text-xs text-slate-400 ml-2">({item.weight}%)</span>
+                      </span>
+                      <span className={`text-sm font-semibold ${colorInfo.text}`}>{item.score}/100</span>
+                    </div>
+                    <Progress value={item.score} color={colorInfo.bg} />
                   </div>
-                  <Progress value={item.score} color={colorInfo.bg} />
-                </div>
-              );
-            })}
+                );
+              })
+            ) : (
+              <div className="text-center py-8 text-slate-400">
+                <AlertCircle className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">Your score breakdown will appear once enough data is available.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -209,6 +505,17 @@ function JourneyModeContent({ profile, goals, activeGoals, healthScore, breakdow
 
 /* ─── Decision Mode Content ─────────────────────────── */
 function DecisionModeContent({ profile, decisions, currency }) {
+  const hasIncome = profile?.monthlyIncome != null && profile.monthlyIncome > 0;
+  const savingsRate = hasIncome
+    ? Math.round(((profile.monthlyIncome - (profile.monthlyExpenses || 0)) / profile.monthlyIncome) * 100)
+    : null;
+  const availableFunds =
+    (profile?.totalSavings ?? 0) + (profile?.investments ?? 0);
+  const monthlyCapacity = (profile?.monthlyIncome || 0) - (profile?.monthlyExpenses || 0);
+  const debtRatio = hasIncome
+    ? Math.round(((profile?.totalDebt || 0) / (profile.monthlyIncome * 12)) * 100)
+    : null;
+
   return (
     <>
       {/* Quick snapshot + AI CTA */}
@@ -220,10 +527,16 @@ function DecisionModeContent({ profile, decisions, currency }) {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <MiniStat label="Savings Rate" value={`${profile?.monthlyIncome > 0 ? Math.round(((profile.monthlyIncome - profile.monthlyExpenses) / profile.monthlyIncome) * 100) : 0}%`} />
-              <MiniStat label="Available Funds" value={formatCurrency((profile?.totalSavings || 0) + (profile?.investments || 0), currency)} />
-              <MiniStat label="Monthly Capacity" value={formatCurrency((profile?.monthlyIncome || 0) - (profile?.monthlyExpenses || 0), currency)} />
-              <MiniStat label="Debt Ratio" value={`${profile?.monthlyIncome > 0 ? Math.round(((profile?.totalDebt || 0) / (profile.monthlyIncome * 12)) * 100) : 0}%`} />
+              <MiniStat label="Savings Rate" value={savingsRate != null ? `${savingsRate}%` : '—'} />
+              <MiniStat
+                label="Available Funds"
+                value={profile?.totalSavings != null || profile?.investments != null ? formatCurrency(availableFunds, currency) : 'Not Set'}
+              />
+              <MiniStat
+                label="Monthly Capacity"
+                value={profile?.monthlyIncome != null ? formatCurrency(monthlyCapacity, currency) : 'Not Set'}
+              />
+              <MiniStat label="Debt Ratio" value={debtRatio != null ? `${debtRatio}%` : '—'} />
             </div>
           </CardContent>
         </Card>
@@ -296,7 +609,7 @@ function StatCard({ icon: Icon, label, value, trend, color, bgColor }) {
           {trend === 'down' && <ArrowDownRight className="w-4 h-4 text-rose-500" />}
         </div>
         <div className="mt-3">
-          <p className="text-2xl font-bold text-slate-900">{value}</p>
+          <p className="text-2xl font-bold text-slate-900 leading-tight" title={typeof value === 'string' ? value : undefined}>{value}</p>
           <p className="text-xs text-slate-500 mt-1">{label}</p>
         </div>
       </CardContent>

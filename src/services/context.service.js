@@ -36,9 +36,12 @@ export function buildUserContext(profile, goals = [], decisions = []) {
     personal: {
       name: profile.name || 'User',
       age: profile.age || null,
-      role: profile.role || null,
+      role: profile.role || profile.occupation || null,
       country: profile.country || null,
       currency: profile.currency || 'USD',
+      riskTolerance: profile.riskTolerance || null,
+      interactionMode: profile.interactionMode || null,
+      financialGoal: profile.financialGoal || profile.mainGoal || null,
     },
     financial: {
       monthlyIncome,

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getTransactions, getDecisions, getInsights } from '@/services/firestore.service';
+import { getTransactions, addTransaction, getDecisions, getInsights } from '@/services/firestore.service';
 
 export const useDashboardStore = create((set) => ({
   transactions: [],
@@ -14,6 +14,19 @@ export const useDashboardStore = create((set) => ({
       set({ transactions });
     } catch (err) {
       console.error('Failed to fetch transactions:', err);
+    }
+  },
+
+  addTransaction: async (uid, txData) => {
+    try {
+      const id = await addTransaction(uid, txData);
+      set((state) => ({
+        transactions: [{ id, ...txData, createdAt: Date.now() }, ...state.transactions],
+      }));
+      return id;
+    } catch (err) {
+      console.error('Failed to add transaction:', err);
+      throw err;
     }
   },
 

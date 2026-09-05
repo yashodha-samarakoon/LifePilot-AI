@@ -5,14 +5,14 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
-import { Compass, Eye, EyeOff } from 'lucide-react';
+import { Compass, Eye, EyeOff, Chrome } from 'lucide-react';
 import { APP_NAME, APP_TAGLINE } from '@/lib/constants';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const { login, loading, error, clearError } = useAuthStore();
+  const { login, googleLogin, loading, error, clearError } = useAuthStore();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -20,6 +20,16 @@ export function LoginPage() {
     clearError();
     try {
       await login(email, password);
+      navigate('/dashboard');
+    } catch {
+      // Error handled by store
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    clearError();
+    try {
+      await googleLogin();
       navigate('/dashboard');
     } catch {
       // Error handled by store
@@ -87,6 +97,27 @@ export function LoginPage() {
 
               <Button type="submit" className="w-full" size="lg" disabled={loading}>
                 {loading ? 'Signing in...' : 'Sign In'}
+              </Button>
+
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-white px-2 text-slate-400">or continue with</span>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full gap-2"
+                size="lg"
+                onClick={handleGoogleSignIn}
+                disabled={loading}
+              >
+                <Chrome className="w-5 h-5" />
+                Google
               </Button>
             </form>
 

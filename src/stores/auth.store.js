@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { signIn, signUp, logOut, onAuthChange } from '@/services/auth.service';
+import { signIn, signUp, signInWithGoogle, logOut, onAuthChange } from '@/services/auth.service';
 import { getUserData } from '@/services/firestore.service';
 import { isFirebaseConfigured } from '@/services/firebase';
+import { useUserStore } from './user.store';
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -15,6 +16,8 @@ export const useAuthStore = create((set, get) => ({
       if (user) {
         try {
           const userData = await getUserData(user.uid);
+          // Load the full profile into the user store so it is available globally.
+          useUserStore.getState().fetchProfile(user.uid).catch(() => null);
           set({ user, userData, loading: false, error: null });
         } catch (err) {
           // Provide default userData if fetch fails
@@ -35,8 +38,11 @@ export const useAuthStore = create((set, get) => ({
   login: async (email, password) => {
     set({ loading: true, error: null });
     try {
-      await signIn(email, password);
-      set({ loading: false });
+      const user = await signIn(email, password);
+      // Eagerly load user data and profile so the dashboard can render immediately.
+      const userData = await getUserData(user.uid);
+      useUserStore.getState().fetchProfile(user.uid).catch(() => null);
+      set({ user, userData, loading: false });
     } catch (err) {
       const message = err.code === 'auth/invalid-credential'
         ? 'Invalid email or password'
@@ -49,11 +55,28 @@ export const useAuthStore = create((set, get) => ({
   signup: async (email, password) => {
     set({ loading: true, error: null });
     try {
-      await signUp(email, password);
-      set({ loading: false });
+      const user = await signUp(email, password);
+      const userData = await getUserData(user.uid);
+      set({ user, userData, loading: false });
     } catch (err) {
       const message = err.code === 'auth/email-already-in-use'
         ? 'Email is already registered'
+        : err.message;
+      set({ error: message, loading: false });
+      throw err;
+    }
+  },
+
+  googleLogin: async () => {
+    set({ loading: true, error: null });
+    try {
+      const user = await signInWithGoogle();
+      const userData = await getUserData(user.uid);
+      useUserStore.getState().fetchProfile(user.uid).catch(() => null);
+      set({ user, userData, loading: false });
+    } catch (err) {
+      const message = err.code === 'auth/popup-closed-by-user'
+        ? 'Sign-in was cancelled'
         : err.message;
       set({ error: message, loading: false });
       throw err;

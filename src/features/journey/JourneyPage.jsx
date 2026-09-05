@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth.store';
 import { useUserStore } from '@/stores/user.store';
@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Progress } from '@/components/ui/Progress';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, estimateMonthlyExpenses } from '@/lib/utils';
 import {
   Map,
   Target,
@@ -27,20 +27,28 @@ import {
 export function JourneyPage() {
   const { user } = useAuthStore();
   const { profile, goals, fetchProfile, fetchGoals } = useUserStore();
-  const { decisions, fetchDecisions } = useDashboardStore();
+  const { decisions, transactions, fetchDecisions, fetchTransactions } = useDashboardStore();
 
   useEffect(() => {
     if (user?.uid) {
       fetchProfile(user.uid);
       fetchGoals(user.uid);
       fetchDecisions(user.uid);
+      fetchTransactions(user.uid);
     }
   }, [user]);
 
   const currency = profile?.currency || 'USD';
   const activeGoals = goals.filter((g) => g.status === 'active');
   const completedGoals = goals.filter((g) => g.status === 'completed');
-  const monthlyCapacity = (profile?.monthlyIncome || 0) - (profile?.monthlyExpenses || 0);
+
+  const estimatedExpenses = useMemo(() => estimateMonthlyExpenses(transactions), [transactions]);
+  const effectiveProfile = useMemo(() => {
+    if (!profile) return null;
+    return { ...profile, monthlyExpenses: profile.monthlyExpenses ?? estimatedExpenses };
+  }, [profile, estimatedExpenses]);
+
+  const monthlyCapacity = (effectiveProfile?.monthlyIncome || 0) - (effectiveProfile?.monthlyExpenses || 0);
 
   return (
     <div className="space-y-6">
@@ -69,10 +77,30 @@ export function JourneyPage() {
               <h2 className="text-lg font-bold text-slate-900">Where You Are Now</h2>
               <p className="text-sm text-slate-500 mt-0.5">Based on your current financial profile</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-                <MiniStat icon={Wallet} label="Monthly Income" value={formatCurrency(profile?.monthlyIncome || 0, currency)} />
-                <MiniStat icon={CreditCard} label="Monthly Expenses" value={formatCurrency(profile?.monthlyExpenses || 0, currency)} />
-                <MiniStat icon={PiggyBank} label="Total Savings" value={formatCurrency(profile?.totalSavings || 0, currency)} />
-                <MiniStat icon={TrendingUp} label="Monthly Capacity" value={formatCurrency(monthlyCapacity, currency)} />
+                <MiniStat
+                  icon={Wallet}
+                  label="Monthly Income"
+                  value={effectiveProfile?.monthlyIncome != null ? formatCurrency(effectiveProfile.monthlyIncome, currency) : 'Not Set'}
+                />
+                <MiniStat
+                  icon={CreditCard}
+                  label="Monthly Expenses"
+                  value={profile?.monthlyExpenses != null
+                    ? formatCurrency(profile.monthlyExpenses, currency)
+                    : (transactions.length > 0 ? `${formatCurrency(estimatedExpenses, currency)} (estimated)` : 'Start Tracking')}
+                />
+                <MiniStat
+                  icon={PiggyBank}
+                  label="Total Savings"
+                  value={effectiveProfile?.totalSavings != null ? formatCurrency(effectiveProfile.totalSavings, currency) : 'Not Set'}
+                />
+                <MiniStat
+                  icon={TrendingUp}
+                  label="Monthly Capacity"
+                  value={(effectiveProfile?.monthlyIncome != null || effectiveProfile?.monthlyExpenses != null)
+                    ? formatCurrency(monthlyCapacity, currency)
+                    : 'Not Available Yet'}
+                />
               </div>
             </div>
           </div>
@@ -90,8 +118,10 @@ export function JourneyPage() {
             <CardContent className="pt-4 pb-4">
               <h3 className="font-semibold text-slate-900">Current Position</h3>
               <p className="text-sm text-slate-500 mt-1">
-                {profile?.role ? `${profile.role.replace('-', ' ')} — ` : ''}
-                Monthly savings capacity of {formatCurrency(monthlyCapacity, currency)}
+                {effectiveProfile?.role ? `${effectiveProfile.role.replace('-', ' ')} — ` : ''}
+                Monthly savings capacity of {(effectiveProfile?.monthlyIncome != null || effectiveProfile?.monthlyExpenses != null)
+                  ? formatCurrency(monthlyCapacity, currency)
+                  : 'not available yet'}
               </p>
               <div className="flex flex-wrap gap-2 mt-3">
                 <Badge variant="outline">{activeGoals.length} active goal{activeGoals.length !== 1 ? 's' : ''}</Badge>

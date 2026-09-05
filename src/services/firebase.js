@@ -9,7 +9,7 @@ import { getFunctions } from 'firebase/functions';
 // Set this to true to reconnect Firebase. While false, the app runs entirely
 // in local mock mode with in-memory data stores. No Firebase services are
 // initialized, so Firebase configuration is not required.
-export const USE_FIREBASE = false;
+export const USE_FIREBASE = true;
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,

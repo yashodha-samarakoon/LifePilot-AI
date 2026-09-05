@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
-import { Compass, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { Compass, Eye, EyeOff, CheckCircle2, Chrome } from 'lucide-react';
 import { APP_NAME, APP_TAGLINE } from '@/lib/constants';
 
 export function SignupPage() {
@@ -14,7 +14,7 @@ export function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState('');
-  const { signup, loading, error, clearError } = useAuthStore();
+  const { signup, googleLogin, loading, error, clearError } = useAuthStore();
   const navigate = useNavigate();
 
   const passwordChecks = [
@@ -39,6 +39,17 @@ export function SignupPage() {
     try {
       await signup(email, password);
       navigate('/onboarding');
+    } catch {
+      // Error handled by store
+    }
+  };
+
+  const handleGoogleSignUp = async () => {
+    clearError();
+    setLocalError('');
+    try {
+      await googleLogin();
+      navigate('/dashboard');
     } catch {
       // Error handled by store
     }
@@ -133,6 +144,27 @@ export function SignupPage() {
 
               <Button type="submit" className="w-full" size="lg" disabled={loading}>
                 {loading ? 'Creating account...' : 'Create Account'}
+              </Button>
+
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-white px-2 text-slate-400">or continue with</span>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full gap-2"
+                size="lg"
+                onClick={handleGoogleSignUp}
+                disabled={loading}
+              >
+                <Chrome className="w-5 h-5" />
+                Google
               </Button>
             </form>
 

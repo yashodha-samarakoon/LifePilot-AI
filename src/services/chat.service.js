@@ -1,7 +1,11 @@
 /**
  * AI Chat Service
  * Handles the AI Companion conversation flow.
- * Falls back to intelligent mock responses when Qwen is not connected.
+ *
+ * Priority:
+ * 1. Firebase Cloud Function (when Firebase is configured)
+ * 2. Local Gemini proxy server (when running in local/mock mode)
+ * 3. Intelligent mock response fallback
  */
 
 import { httpsCallable } from 'firebase/functions';
@@ -22,7 +26,7 @@ if (isFirebaseConfigured && functions) {
  * @returns {object} Structured response
  */
 export async function sendChatMessage(message, context, history = []) {
-  // If Qwen is connected, use Cloud Function
+  // 1. Firebase Cloud Function path
   if (chatFn) {
     try {
       const result = await chatFn({
@@ -32,12 +36,50 @@ export async function sendChatMessage(message, context, history = []) {
       });
       return result.data;
     } catch (err) {
-      console.warn('Cloud Function chat failed, using mock:', err.message);
+      console.warn('Cloud Function chat failed, trying Gemini proxy:', err.message);
     }
   }
 
-  // Fallback: intelligent mock response
-  return generateMockResponse(message, context, history);
+  // 2. Local Gemini proxy path (keeps API key server-side)
+  const geminiResponse = await callLocalGemini(message, context, history);
+  if (geminiResponse.type === 'error') {
+    throw new Error(geminiResponse.content);
+  }
+  return geminiResponse;
+}
+
+/**
+ * Call the local Gemini proxy server.
+ */
+async function callLocalGemini(message, context, history) {
+  const response = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      context,
+      history: history.slice(-20),
+    }),
+  });
+
+  const data = await response.json().catch(() => ({
+    type: 'error',
+    content: 'Failed to parse Gemini proxy response.',
+  }));
+
+  if (!response.ok || data.type === 'error') {
+    console.warn('[ChatService] Gemini proxy returned error:', response.status, data);
+    return {
+      type: 'error',
+      content: data.content || data.error?.message || `Gemini proxy error (${response.status})`,
+    };
+  }
+
+  return {
+    type: data.type || 'text',
+    content: data.content || '',
+    actions: data.actions || [],
+  };
 }
 
 // ============================================================
@@ -45,13 +87,85 @@ export async function sendChatMessage(message, context, history = []) {
 // ============================================================
 
 function generateMockResponse(message, context, history) {
-  const lower = message.toLowerCase();
+  const lower = message.toLowerCase().trim();
+  console.log('[ChatService] generating response for:', lower);
   const { personal, financial, goals } = context;
   const currency = personal.currency || 'USD';
   const name = personal.name || 'there';
   const fmt = (amount) => formatCurrency(amount, currency);
 
-  // Detect intent via keyword matching
+  // ── Small talk / greetings ───────────────────────────────────────────────
+  if (matchesAny(lower, ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening'])) {
+    return {
+      type: 'text',
+      content: `Hello ${name}! How can I help with your finances today?`,
+      actions: [],
+    };
+  }
+
+  if (matchesAny(lower, ['how are you', 'how are you doing', 'how is it going', "what's up", 'whats up'])) {
+    return {
+      type: 'text',
+      content: `I'm doing well and ready to help you with budgeting, savings, investments, and financial planning. How about you — is there a money decision I can help with?`,
+      actions: [],
+    };
+  }
+
+  if (matchesAny(lower, ['who are you', 'what are you', 'what can you do', 'tell me about yourself'])) {
+    return {
+      type: 'text',
+      content: `I'm LifePilot AI, your personal financial companion. I know your income, expenses, savings, goals, and risk style, so I can give advice tailored to you. Ask me anything about budgeting, saving, investing, debt, or major purchase decisions.`,
+      actions: [],
+    };
+  }
+
+  if (matchesAny(lower, ['thank', 'thanks', 'appreciate'])) {
+    return {
+      type: 'text',
+      content: `You're welcome, ${name}! Let me know whenever you want to talk through a financial goal or decision.`,
+      actions: [],
+    };
+  }
+
+  if (matchesAny(lower, ['bye', 'goodbye', 'see you', 'talk later'])) {
+    return {
+      type: 'text',
+      content: `Goodbye, ${name}! Feel free to come back anytime you want to review your finances or plan your next move.`,
+      actions: [],
+    };
+  }
+
+  // ── Non-financial topics ─────────────────────────────────────────────────
+  if (matchesAny(lower, ['joke', 'funny', 'laugh', 'humor'])) {
+    return {
+      type: 'text',
+      content: `I focus on personal finance, but here's one: Why did the budget go to therapy? Because it had too many spending issues! 😊\n\nHow can I help with your financial goals?`,
+      actions: [],
+    };
+  }
+
+  if (matchesAny(lower, ['weather', 'sports', 'politics', 'news', 'movie', 'music', 'food', 'recipe'])) {
+    return {
+      type: 'text',
+      content: `That's a bit outside my area, ${name}. I'm here to help with personal finance — budgeting, saving, investing, debt, and planning for goals. What would you like to focus on financially?`,
+      actions: [],
+    };
+  }
+
+  // ── Finance-related intents ──────────────────────────────────────────────
+  if (!hasFinancialData(context)) {
+    const financeTriggers = [
+      'vehicle', 'car', 'house', 'home', 'property', 'apartment',
+      'education', 'degree', 'master', "master's", 'university', 'study', 'college',
+      'business', 'startup', 'venture', 'loan', 'borrow', 'credit',
+      'goal', 'save', 'saving', 'target', 'afford', 'invest', 'stock', 'mutual fund',
+      'health', 'expense', 'spending', 'budget', 'debt', 'emergency', 'rainy day',
+    ];
+    if (financeTriggers.some((t) => lower.includes(t))) {
+      return missingDataResponse(name);
+    }
+  }
+
   if (matchesAny(lower, ['buy vehicle', 'car', 'vehicle', 'buy a car', 'buy a vehicle'])) {
     return generateDecisionResponse('vehicle', context, fmt, name);
   }
@@ -100,16 +214,16 @@ function generateMockResponse(message, context, history) {
     return generateEmergencyResponse(context, fmt, name);
   }
 
-  if (matchesAny(lower, ['hello', 'hi', 'hey', 'help'])) {
+  if (matchesAny(lower, ['help', 'what should i ask', 'what can i ask', 'suggest'])) {
     return {
       type: 'text',
-      content: `Hello ${name}! I'm your LifePilot AI Companion. I understand your personal financial situation and can help you with:\n\n• **Decision analysis** — \"Can I afford a vehicle?\"\n• **Goal planning** — \"Help me plan my savings goals\"\n• **Financial insights** — \"How is my financial health?\"\n• **Budget advice** — \"Where can I reduce spending?\"\n\nWhat would you like to explore?`,
+      content: `Here are some things I can help with, ${name}:\n\n• "How is my financial health?"\n• "Can I afford a vehicle?"\n• "How are my goals progressing?"\n• "Where can I reduce spending?"\n• "Should I start investing?"\n\nWhat would you like to explore?`,
       actions: [],
     };
   }
 
-  // Default: context-aware response
-  return generateGeneralResponse(context, fmt, name, message);
+  // ── Default: friendly, context-aware response ────────────────────────────
+  return generateConversationalResponse(context, fmt, name, message);
 }
 
 // ============================================================
@@ -365,12 +479,25 @@ function generateEmergencyResponse(ctx, fmt, name) {
   };
 }
 
-function generateGeneralResponse(ctx, fmt, name, message) {
+function generateConversationalResponse(ctx, fmt, name, message) {
   const summary = buildContextSummary(ctx);
+
+  // If the message looks like it might be finance-related but didn't match a
+  // specific intent, acknowledge it and still give a personalized reply.
+  const financeHints = ['money', 'finance', 'spend', 'earn', 'cost', 'price', 'plan', 'future', 'retire', 'rich', 'wealth'];
+  const seemsFinancial = financeHints.some((hint) => message.toLowerCase().includes(hint));
+
+  if (seemsFinancial && summary) {
+    return {
+      type: 'text',
+      content: `Thanks for sharing, ${name}. Based on your profile:\n\n${summary}\n\nCould you tell me a bit more? For example, is this about a specific purchase, saving goal, investment, or debt payoff?`,
+      actions: [],
+    };
+  }
 
   return {
     type: 'text',
-    content: `I understand your question, ${name}. Based on what I know about your financial situation:\n\n${summary}\n\nI can provide more specific guidance if you tell me more about what you'd like to explore. For example:\n\n• Ask about a **specific decision** — "Can I afford a vehicle?"\n• Ask about your **goals** — "How are my goals progressing?"\n• Ask about your **financial health** — "How is my financial health?"\n• Ask about **spending** — "Where can I reduce expenses?"\n\nWhat would you like to discuss?`,
+    content: `I focus on personal finance and financial planning, ${name}. ${summary ? `From your profile, ${summary}` : ''}\n\nI'm happy to help with things like budgeting, saving, investing, debt, or deciding whether you can afford a major purchase. What would you like to talk about?`,
     actions: [],
   };
 }
@@ -379,6 +506,35 @@ function generateGeneralResponse(ctx, fmt, name, message) {
 // Utilities
 // ============================================================
 
+function hasFinancialData(context) {
+  const { financial } = context;
+  if (!financial) return false;
+  return (
+    (financial.monthlyIncome || 0) > 0 ||
+    (financial.totalSavings || 0) > 0 ||
+    (financial.totalDebt || 0) > 0
+  );
+}
+
+function missingDataResponse(name) {
+  return {
+    type: 'text',
+    content: `I'd love to help with that, ${name}, but I don't have enough financial details yet. Add your monthly income, savings, or expenses in Settings so I can give you personalised guidance.`,
+    actions: [
+      { type: 'open_settings', label: 'Complete Your Profile', description: 'Add income, savings, and expenses' },
+    ],
+  };
+}
+
 function matchesAny(text, keywords) {
-  return keywords.some((kw) => text.includes(kw));
+  return keywords.some((kw) => {
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // For single-word keywords, require word boundaries so short words like
+    // "hi" don't match inside "vehicle", "this", "which", etc.
+    if (!escaped.includes(' ')) {
+      return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
+    }
+    // For multi-word phrases, fall back to substring matching.
+    return text.includes(kw);
+  });
 }

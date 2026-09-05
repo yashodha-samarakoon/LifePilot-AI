@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:server": "node server/index.js",
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev -- --port 5177\"",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -40,6 +42,11 @@
     "tailwindcss": "^3.4.0",
     "postcss": "^8.4.0",
     "autoprefixer": "^10.4.0",
-    "eslint": "^9.0.0"
+    "eslint": "^9.0.0",
+    "@google/generative-ai": "^0.21.0",
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "concurrently": "^9.0.0"
   }
 }

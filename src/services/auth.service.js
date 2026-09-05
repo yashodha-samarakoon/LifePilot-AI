@@ -1,6 +1,9 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  getAdditionalUserInfo,
   signOut,
   onAuthStateChanged,
 } from 'firebase/auth';
@@ -26,7 +29,9 @@ function notifyMockListeners() {
  * same email returns the same local data.
  */
 function getMockUid(email) {
-  const input = email || MOCK_EMAIL;
+  // Normalize to lowercase so different cases of the same email map to the
+  // same local user and data.
+  const input = (email || MOCK_EMAIL).toLowerCase().trim();
   let hash = 0;
   for (let i = 0; i < input.length; i++) {
     hash = (hash << 5) - hash + input.charCodeAt(i);
@@ -85,6 +90,43 @@ export async function signIn(email, password) {
 
   const userCredential = await signInWithEmailAndPassword(auth, email, password);
   return userCredential.user;
+}
+
+export async function signInWithGoogle() {
+  if (!isFirebaseConfigured || !auth) {
+    const user = createMockUser('demo-google@lifepilot.local');
+    seedMockUser(user.uid, user.email);
+    mockAuthState.user = user;
+    notifyMockListeners();
+    return user;
+  }
+
+  const provider = new GoogleAuthProvider();
+  provider.addScope('email');
+  provider.addScope('profile');
+
+  const result = await signInWithPopup(auth, provider);
+  const user = result.user;
+  const additionalInfo = getAdditionalUserInfo(result);
+
+  // Create the user document for brand-new Google users so onboarding can run.
+  if (additionalInfo?.isNewUser) {
+    await setDoc(
+      doc(db, 'users', user.uid),
+      {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || null,
+        photoURL: user.photoURL || null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        onboardingComplete: false,
+      },
+      { merge: true }
+    );
+  }
+
+  return user;
 }
 
 export async function logOut() {

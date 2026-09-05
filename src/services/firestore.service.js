@@ -51,89 +51,16 @@ export function seedMockUser(uid, email) {
 }
 
 /**
- * Seed sample data for a mock user so that dashboard, goals, decisions,
- * insights, chat, and settings pages are populated for development/testing.
- * Only runs in local mock mode and only when no data exists yet.
+ * Sample-data seeding is intentionally disabled for new mock users.
+ *
+ * The redesigned onboarding keeps the first dashboard experience empty so
+ * users see the welcome-setup cards and can build their profile organically.
+ * Transactions, goals, and decisions are now created by the user instead of
+ * being pre-filled.
  */
 export function seedSampleData(uid, email) {
   if (isFirebaseConfigured || !db) return;
-
-  // Goals
-  if (!mockStore.goals.has(uid) || mockStore.goals.get(uid).length === 0) {
-    mockStore.goals.set(uid, [
-      {
-        id: mockId(),
-        title: 'Build Emergency Fund',
-        targetAmount: 5000,
-        currentAmount: 1200,
-        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 180),
-        priority: 'high',
-        category: 'savings',
-        status: 'active',
-        createdAt: Date.now(),
-      },
-      {
-        id: mockId(),
-        title: 'Pay Off Student Loan',
-        targetAmount: 12000,
-        currentAmount: 3000,
-        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
-        priority: 'high',
-        category: 'debt',
-        status: 'active',
-        createdAt: Date.now(),
-      },
-    ]);
-  }
-
-  // Transactions
-  if (!mockStore.transactions.has(uid) || mockStore.transactions.get(uid).length === 0) {
-    mockStore.transactions.set(uid, [
-      { id: mockId(), description: 'Grocery shopping', amount: 120, type: 'expense', category: 'food', date: Date.now() - 1000 * 60 * 60 * 24, createdAt: Date.now() },
-      { id: mockId(), description: 'Freelance payment', amount: 800, type: 'income', category: 'income', date: Date.now() - 1000 * 60 * 60 * 48, createdAt: Date.now() },
-      { id: mockId(), description: 'Electric bill', amount: 95, type: 'expense', category: 'utilities', date: Date.now() - 1000 * 60 * 60 * 72, createdAt: Date.now() },
-    ]);
-  }
-
-  // Decisions
-  if (!mockStore.decisions.has(uid) || mockStore.decisions.get(uid).length === 0) {
-    mockStore.decisions.set(uid, [
-      {
-        id: mockId(),
-        title: 'Buy a car vs. continue using public transport',
-        type: 'purchase',
-        optionA: { name: 'Buy Car', cost: 15000, benefit: 'Convenience and time savings' },
-        optionB: { name: 'Public Transport', cost: 1200, benefit: 'Lower monthly cost' },
-        recommendation: 'optionB',
-        createdAt: Date.now(),
-      },
-    ]);
-  }
-
-  // Insights
-  if (!mockStore.insights.has(uid) || mockStore.insights.get(uid).length === 0) {
-    mockStore.insights.set(uid, [
-      { id: mockId(), type: 'blind_spot', title: 'No emergency fund', description: 'You have not allocated savings for unexpected expenses.', severity: 'high', acknowledged: false, createdAt: Date.now() },
-      { id: mockId(), type: 'opportunity', title: 'Reduce subscription spending', description: 'Review recurring subscriptions to free up monthly cash flow.', severity: 'medium', acknowledged: false, createdAt: Date.now() },
-      { id: mockId(), type: 'wellness', title: 'Track daily spending', description: 'Logging small expenses can reveal hidden spending patterns.', severity: 'low', acknowledged: false, createdAt: Date.now() },
-    ]);
-  }
-
-  // Chat history
-  if (!mockStore.chatHistory.has(uid) || mockStore.chatHistory.get(uid).length === 0) {
-    mockStore.chatHistory.set(uid, [
-      { id: mockId(), role: 'user', content: 'How can I save more money?', createdAt: Date.now() - 1000 * 60 * 60 },
-      { id: mockId(), role: 'assistant', content: 'Start by tracking your expenses and setting a realistic savings goal.', createdAt: Date.now() - 1000 * 60 * 59 },
-    ]);
-  }
-
-  // Memory items
-  if (!mockStore.memory.has(uid) || mockStore.memory.get(uid).length === 0) {
-    mockStore.memory.set(uid, [
-      { id: mockId(), key: 'currency', value: 'USD', source: 'onboarding', createdAt: Date.now() },
-      { id: mockId(), key: 'risk_tolerance', value: 'moderate', source: 'onboarding', createdAt: Date.now() },
-    ]);
-  }
+  // No-op: first-time users start with a clean slate.
 }
 
 // ============================================================
@@ -371,12 +298,17 @@ export async function getChatMessages(uid, limit = 100) {
     const messages = mockStore.chatHistory.get(uid) || [];
     return [...messages].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).slice(-limit);
   }
-  const q = query(
-    collection(db, 'users', uid, 'chatHistory'),
-    orderBy('createdAt', 'asc')
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })).slice(-limit);
+  try {
+    const q = query(
+      collection(db, 'users', uid, 'chatHistory'),
+      orderBy('createdAt', 'asc')
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })).slice(-limit);
+  } catch (err) {
+    console.error('[Firestore] getChatMessages failed:', err.code || err.message, err);
+    throw err;
+  }
 }
 
 export async function saveChatMessage(uid, messageData) {

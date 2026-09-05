@@ -10,8 +10,18 @@
  * - Emergency Fund (10%): Months of expenses covered by savings
  */
 
+function hasEnoughDataForScore(profile) {
+  if (!profile) return false;
+  const income = profile.monthlyIncome;
+  const hasIncome = income != null && income > 0;
+  const hasExpenses = profile.monthlyExpenses != null && profile.monthlyExpenses > 0;
+  const hasSavings = profile.totalSavings != null && profile.totalSavings > 0;
+  const hasDebt = profile.totalDebt != null && profile.totalDebt > 0;
+  return hasIncome && (hasExpenses || hasSavings || hasDebt);
+}
+
 export function calculateHealthScore(profile, goals = []) {
-  if (!profile) return 0;
+  if (!hasEnoughDataForScore(profile)) return null;
 
   const savingsRateScore = calcSavingsRate(profile);
   const debtScore = calcDebtToIncome(profile);
@@ -87,6 +97,7 @@ function calcEmergencyFund(profile) {
 }
 
 export function getScoreBreakdown(profile, goals = []) {
+  if (!hasEnoughDataForScore(profile)) return [];
   return [
     { label: 'Savings Rate', score: calcSavingsRate(profile), weight: 30 },
     { label: 'Debt Management', score: calcDebtToIncome(profile), weight: 25 },

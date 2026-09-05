@@ -27,17 +27,18 @@ export function ChatPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { profile, goals, fetchProfile, fetchGoals } = useUserStore();
-  const { messages, typing, error, sendMessage, clearChat, addSystemMessage } = useChatStore();
+  const { messages, typing, error, sendMessage, clearChat, addSystemMessage, loadMessages } = useChatStore();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
     if (user?.uid) {
+      loadMessages(user.uid);
       fetchProfile(user.uid);
       fetchGoals(user.uid);
     }
-  }, [user]);
+  }, [user, loadMessages]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -48,7 +49,7 @@ export function ChatPage() {
     const message = text || input.trim();
     if (!message) return;
     setInput('');
-    await sendMessage(message, profile, goals);
+    await sendMessage(message, profile, goals, [], user?.uid);
   };
 
   const handleKeyDown = (e) => {
@@ -79,7 +80,7 @@ export function ChatPage() {
   };
 
   const handleClear = () => {
-    clearChat();
+    clearChat(user?.uid);
   };
 
   return (
@@ -141,7 +142,7 @@ export function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about any financial decision..."
+              placeholder="Ask me anything — say hi, ask about your finances, or tell me a goal..."
               rows={1}
               className="w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 pr-12 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               style={{ minHeight: '48px', maxHeight: '120px' }}

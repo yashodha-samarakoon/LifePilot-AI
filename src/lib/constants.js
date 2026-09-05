@@ -27,14 +27,6 @@ export const ROLES = [
   { value: 'business-owner', label: 'Business Owner',           icon: 'Store' },
 ];
 
-export const AGE_RANGES = [
-  { value: '18-24', label: '18 – 24' },
-  { value: '25-34', label: '25 – 34' },
-  { value: '35-44', label: '35 – 44' },
-  { value: '45-54', label: '45 – 54' },
-  { value: '55+',   label: '55+' },
-];
-
 export const RISK_TOLERANCE = [
   { value: 'conservative', label: 'Conservative', description: 'Prefer safety over high returns' },
   { value: 'moderate',     label: 'Moderate',     description: 'Balanced approach to risk' },

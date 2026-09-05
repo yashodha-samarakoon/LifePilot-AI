@@ -98,3 +98,15 @@ export function getDaysRemaining(deadline) {
 export function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
+
+/**
+ * Estimate monthly expenses from a list of tracked transactions.
+ * Sums expense transactions from the last 30 days.
+ */
+export function estimateMonthlyExpenses(transactions = []) {
+  const now = Date.now();
+  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+  return transactions
+    .filter((t) => t.type === 'expense' && (t.date || t.createdAt) >= thirtyDaysAgo)
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+}

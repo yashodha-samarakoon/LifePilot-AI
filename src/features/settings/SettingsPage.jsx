@@ -146,20 +146,16 @@ export function SettingsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="settings-age">Age Range</Label>
-              <select
+              <Label htmlFor="settings-age">Age</Label>
+              <Input
                 id="settings-age"
-                className="flex h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                type="number"
+                min={13}
+                max={120}
+                placeholder="25"
                 value={personalForm.age}
-                onChange={(e) => setPersonalForm({ ...personalForm, age: e.target.value })}
-              >
-                <option value="">Select age range</option>
-                <option value="18-24">18 – 24</option>
-                <option value="25-34">25 – 34</option>
-                <option value="35-44">35 – 44</option>
-                <option value="45-54">45 – 54</option>
-                <option value="55+">55+</option>
-              </select>
+                onChange={(e) => setPersonalForm({ ...personalForm, age: Number(e.target.value) || '' })}
+              />
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
