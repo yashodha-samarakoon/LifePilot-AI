@@ -50,6 +50,92 @@ export function seedMockUser(uid, email) {
   }
 }
 
+/**
+ * Seed sample data for a mock user so that dashboard, goals, decisions,
+ * insights, chat, and settings pages are populated for development/testing.
+ * Only runs in local mock mode and only when no data exists yet.
+ */
+export function seedSampleData(uid, email) {
+  if (isFirebaseConfigured || !db) return;
+
+  // Goals
+  if (!mockStore.goals.has(uid) || mockStore.goals.get(uid).length === 0) {
+    mockStore.goals.set(uid, [
+      {
+        id: mockId(),
+        title: 'Build Emergency Fund',
+        targetAmount: 5000,
+        currentAmount: 1200,
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 180),
+        priority: 'high',
+        category: 'savings',
+        status: 'active',
+        createdAt: Date.now(),
+      },
+      {
+        id: mockId(),
+        title: 'Pay Off Student Loan',
+        targetAmount: 12000,
+        currentAmount: 3000,
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
+        priority: 'high',
+        category: 'debt',
+        status: 'active',
+        createdAt: Date.now(),
+      },
+    ]);
+  }
+
+  // Transactions
+  if (!mockStore.transactions.has(uid) || mockStore.transactions.get(uid).length === 0) {
+    mockStore.transactions.set(uid, [
+      { id: mockId(), description: 'Grocery shopping', amount: 120, type: 'expense', category: 'food', date: Date.now() - 1000 * 60 * 60 * 24, createdAt: Date.now() },
+      { id: mockId(), description: 'Freelance payment', amount: 800, type: 'income', category: 'income', date: Date.now() - 1000 * 60 * 60 * 48, createdAt: Date.now() },
+      { id: mockId(), description: 'Electric bill', amount: 95, type: 'expense', category: 'utilities', date: Date.now() - 1000 * 60 * 60 * 72, createdAt: Date.now() },
+    ]);
+  }
+
+  // Decisions
+  if (!mockStore.decisions.has(uid) || mockStore.decisions.get(uid).length === 0) {
+    mockStore.decisions.set(uid, [
+      {
+        id: mockId(),
+        title: 'Buy a car vs. continue using public transport',
+        type: 'purchase',
+        optionA: { name: 'Buy Car', cost: 15000, benefit: 'Convenience and time savings' },
+        optionB: { name: 'Public Transport', cost: 1200, benefit: 'Lower monthly cost' },
+        recommendation: 'optionB',
+        createdAt: Date.now(),
+      },
+    ]);
+  }
+
+  // Insights
+  if (!mockStore.insights.has(uid) || mockStore.insights.get(uid).length === 0) {
+    mockStore.insights.set(uid, [
+      { id: mockId(), type: 'blind_spot', title: 'No emergency fund', description: 'You have not allocated savings for unexpected expenses.', severity: 'high', acknowledged: false, createdAt: Date.now() },
+      { id: mockId(), type: 'opportunity', title: 'Reduce subscription spending', description: 'Review recurring subscriptions to free up monthly cash flow.', severity: 'medium', acknowledged: false, createdAt: Date.now() },
+      { id: mockId(), type: 'wellness', title: 'Track daily spending', description: 'Logging small expenses can reveal hidden spending patterns.', severity: 'low', acknowledged: false, createdAt: Date.now() },
+    ]);
+  }
+
+  // Chat history
+  if (!mockStore.chatHistory.has(uid) || mockStore.chatHistory.get(uid).length === 0) {
+    mockStore.chatHistory.set(uid, [
+      { id: mockId(), role: 'user', content: 'How can I save more money?', createdAt: Date.now() - 1000 * 60 * 60 },
+      { id: mockId(), role: 'assistant', content: 'Start by tracking your expenses and setting a realistic savings goal.', createdAt: Date.now() - 1000 * 60 * 59 },
+    ]);
+  }
+
+  // Memory items
+  if (!mockStore.memory.has(uid) || mockStore.memory.get(uid).length === 0) {
+    mockStore.memory.set(uid, [
+      { id: mockId(), key: 'currency', value: 'USD', source: 'onboarding', createdAt: Date.now() },
+      { id: mockId(), key: 'risk_tolerance', value: 'moderate', source: 'onboarding', createdAt: Date.now() },
+    ]);
+  }
+}
+
 // ============================================================
 // User Profile
 // ============================================================
@@ -58,9 +144,14 @@ export async function getUserProfile(uid) {
   if (!isFirebaseConfigured || !db) {
     return mockStore.profiles.get(uid) || null;
   }
-  const docRef = doc(db, 'users', uid, 'profile', 'main');
-  const snapshot = await getDoc(docRef);
-  return snapshot.exists() ? snapshot.data() : null;
+  try {
+    const docRef = doc(db, 'users', uid);
+    const snapshot = await getDoc(docRef);
+    return snapshot.exists() ? snapshot.data() : null;
+  } catch (err) {
+    console.error('[Firestore] Failed to fetch profile:', err);
+    return null;
+  }
 }
 
 export async function saveUserProfile(uid, profileData) {
@@ -69,7 +160,7 @@ export async function saveUserProfile(uid, profileData) {
     mockStore.profiles.set(uid, { ...existing, ...profileData, updatedAt: Date.now() });
     return;
   }
-  const docRef = doc(db, 'users', uid, 'profile', 'main');
+  const docRef = doc(db, 'users', uid);
   await setDoc(docRef, { ...profileData, updatedAt: serverTimestamp() }, { merge: true });
 }
 
@@ -79,8 +170,15 @@ export async function completeOnboarding(uid) {
     mockStore.users.set(uid, { ...existing, onboardingComplete: true, updatedAt: Date.now() });
     return;
   }
+  // Use setDoc with merge instead of updateDoc for better resilience.
+  // This avoids hanging when the local Firestore cache hasn't fully
+  // confirmed the user document created during sign-up.
   const userRef = doc(db, 'users', uid);
-  await updateDoc(userRef, { onboardingComplete: true, updatedAt: serverTimestamp() });
+  await setDoc(
+    userRef,
+    { onboardingComplete: true, updatedAt: Date.now() },
+    { merge: true }
+  );
 }
 
 export async function getUserData(uid) {

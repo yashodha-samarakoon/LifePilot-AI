@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth.store';
+import { useUserStore } from '@/stores/user.store';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { ConfigNotice } from '@/components/common/ConfigNotice';
 import { PageLayout } from '@/components/layout/PageLayout';
@@ -18,6 +19,7 @@ import { SettingsPage } from '@/features/settings/SettingsPage';
 
 function App() {
   const { initAuth, user, userData, loading } = useAuthStore();
+  const { profile } = useUserStore();
 
   useEffect(() => {
     const unsubscribe = initAuth();
@@ -57,7 +59,7 @@ function App() {
             element={
               !user ? (
                 <Navigate to="/login" replace />
-              ) : userData?.onboardingComplete ? (
+              ) : userData?.onboardingComplete || profile?.onboardingComplete ? (
                 <Navigate to="/dashboard" replace />
               ) : (
                 <OnboardingPage />

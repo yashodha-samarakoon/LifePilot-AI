@@ -76,7 +76,7 @@ export function OnboardingPage() {
   });
 
   const [goals, setGoals] = useState([
-    { title: '', targetAmount: '', deadline: '', priority: 'medium', category: 'savings' },
+    { title: '', targetAmount: '', deadline: '', deadlineMonth: '', deadlineYear: '', dateType: 'exact', priority: 'medium', category: 'savings' },
   ]);
 
   const updateField = (field, value) => {
@@ -94,7 +94,7 @@ export function OnboardingPage() {
 
   const addGoalItem = () => {
     if (goals.length < 3) {
-      setGoals([...goals, { title: '', targetAmount: '', deadline: '', priority: 'medium', category: 'savings' }]);
+      setGoals([...goals, { title: '', targetAmount: '', deadline: '', deadlineMonth: '', deadlineYear: '', dateType: 'exact', priority: 'medium', category: 'savings' }]);
     }
   };
 
@@ -114,7 +114,7 @@ export function OnboardingPage() {
       case 1: return !!formData.role;
       case 2: return !!formData.country;
       case 3: return !!formData.monthlyIncome;
-      case 4: return goals.some((g) => g.title && g.targetAmount);
+      case 4: return true; // Goals are optional
       case 5: return !!formData.interactionMode;
       case 6: return true;
       default: return true;
@@ -134,6 +134,7 @@ export function OnboardingPage() {
     try {
       const uid = user.uid;
 
+      // Save profile with onboarding flag as a fallback source of truth.
       await saveUserProfile(uid, {
         name: formData.name,
         age: formData.age,
@@ -148,6 +149,7 @@ export function OnboardingPage() {
         investments: Number(formData.investments) || 0,
         riskTolerance: formData.riskTolerance,
         interactionMode: formData.interactionMode,
+        onboardingComplete: true,
       });
 
       for (const goal of goals) {
@@ -156,16 +158,21 @@ export function OnboardingPage() {
             title: goal.title,
             targetAmount: Number(goal.targetAmount),
             currentAmount: 0,
-            deadline: goal.deadline ? new Date(goal.deadline) : null,
+            deadline: resolveDeadline(goal),
             priority: goal.priority,
             category: goal.category,
           });
         }
       }
 
-      await completeOnboarding(uid);
-      updateUserData({ onboardingComplete: true });
+      // Best-effort update of the user document. The profile document already
+      // carries onboardingComplete as the fallback source of truth, so we do
+      // not block the UI on this write.
+      completeOnboarding(uid).catch((err) =>
+        console.warn('[Onboarding] user doc update failed, using profile fallback:', err)
+      );
 
+      updateUserData({ onboardingComplete: true });
       navigate('/dashboard');
     } catch (err) {
       console.error('Onboarding failed:', err);
@@ -175,6 +182,30 @@ export function OnboardingPage() {
   };
 
   const currencySymbol = getCurrencySymbol(formData.currency);
+
+  // Resolve a flexible deadline into an actual Date. Exact dates cannot be in
+  // the past; month/year-only choices map to the last day of that month or year.
+  const resolveDeadline = (goal) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (goal.dateType === 'year' && goal.deadlineYear) {
+      const year = Number(goal.deadlineYear);
+      return new Date(Math.max(year, today.getFullYear()), 11, 31);
+    }
+    if (goal.dateType === 'month' && goal.deadlineMonth) {
+      const [year, month] = goal.deadlineMonth.split('-').map(Number);
+      const candidate = new Date(year, month, 0);
+      return candidate < today ? new Date(today.getFullYear(), today.getMonth() + 1, 0) : candidate;
+    }
+    if (goal.deadline) {
+      const date = new Date(goal.deadline);
+      return date < today ? today : date;
+    }
+    return null;
+  };
+
+  const todayString = new Date().toISOString().split('T')[0];
+  const currentYear = new Date().getFullYear();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-primary-50 flex flex-col">
@@ -229,6 +260,8 @@ export function OnboardingPage() {
                   addGoalItem={addGoalItem}
                   removeGoalItem={removeGoalItem}
                   currencySymbol={currencySymbol}
+                  todayString={todayString}
+                  currentYear={currentYear}
                 />
               )}
               {step === 5 && <StepPreference formData={formData} updateField={updateField} />}
@@ -464,10 +497,15 @@ function StepFinances({ formData, updateField, currencySymbol }) {
 }
 
 /* ─── Step 5: Goals ──────────────────────────────────── */
-function StepGoals({ goals, updateGoal, addGoalItem, removeGoalItem, currencySymbol }) {
+function StepGoals({ goals, updateGoal, addGoalItem, removeGoalItem, currencySymbol, todayString, currentYear }) {
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-500 mb-2">Add up to 3 financial goals you want to achieve.</p>
+      <div>
+        <p className="text-sm text-slate-500">Add up to 3 financial goals.</p>
+        <p className="text-sm text-primary-600 mt-1">
+          You can skip this part and continue.
+        </p>
+      </div>
       {goals.map((goal, index) => (
         <div key={index} className="border border-slate-200 rounded-xl p-4 space-y-3 relative">
           {goals.length > 1 && (
@@ -494,14 +532,52 @@ function StepGoals({ goals, updateGoal, addGoalItem, removeGoalItem, currencySym
               />
             </div>
             <div>
+              <Label className="text-xs">When?</Label>
+              <select
+                className="w-full h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                value={goal.dateType}
+                onChange={(e) => updateGoal(index, 'dateType', e.target.value)}
+              >
+                <option value="exact">Exact date</option>
+                <option value="month">Month &amp; year</option>
+                <option value="year">Year only</option>
+              </select>
+            </div>
+          </div>
+          {goal.dateType === 'exact' && (
+            <div>
               <Label className="text-xs">Target Date</Label>
               <Input
                 type="date"
+                min={todayString}
                 value={goal.deadline}
                 onChange={(e) => updateGoal(index, 'deadline', e.target.value)}
               />
             </div>
-          </div>
+          )}
+          {goal.dateType === 'month' && (
+            <div>
+              <Label className="text-xs">Target Month</Label>
+              <Input
+                type="month"
+                min={todayString.slice(0, 7)}
+                value={goal.deadlineMonth}
+                onChange={(e) => updateGoal(index, 'deadlineMonth', e.target.value)}
+              />
+            </div>
+          )}
+          {goal.dateType === 'year' && (
+            <div>
+              <Label className="text-xs">Target Year</Label>
+              <Input
+                type="number"
+                min={currentYear}
+                placeholder={String(currentYear)}
+                value={goal.deadlineYear}
+                onChange={(e) => updateGoal(index, 'deadlineYear', e.target.value)}
+              />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Category</Label>
@@ -589,6 +665,19 @@ function StepSummary({ formData, goals, currencySymbol }) {
   const country = COUNTRIES.find((c) => c.code === formData.country);
   const prefLabel = INTERACTION_PREFERENCES.find((p) => p.value === formData.interactionMode)?.label;
 
+  const formatGoalDeadline = (goal) => {
+    if (goal.dateType === 'year' && goal.deadlineYear) return goal.deadlineYear;
+    if (goal.dateType === 'month' && goal.deadlineMonth) {
+      const [year, month] = goal.deadlineMonth.split('-');
+      return `${new Date(Number(year), Number(month) - 1).toLocaleString(undefined, { month: 'short' })} ${year}`;
+    }
+    if (goal.deadline) {
+      const d = new Date(goal.deadline);
+      return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    return 'No target date';
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-slate-50 rounded-xl p-4 space-y-3">
@@ -630,7 +719,10 @@ function StepSummary({ formData, goals, currencySymbol }) {
           <h4 className="font-semibold text-primary-900">Your Goals</h4>
           {validGoals.map((goal, i) => (
             <div key={i} className="flex items-center justify-between text-sm">
-              <span className="text-primary-800">{goal.title}</span>
+              <div className="flex flex-col">
+                <span className="text-primary-800">{goal.title}</span>
+                <span className="text-xs text-primary-600/70">{formatGoalDeadline(goal)}</span>
+              </div>
               <span className="font-medium">{formatCurrency(Number(goal.targetAmount), formData.currency)}</span>
             </div>
           ))}

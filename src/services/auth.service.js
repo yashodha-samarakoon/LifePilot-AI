@@ -6,13 +6,12 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from './firebase';
-import { seedMockUser } from './firestore.service';
+import { seedMockUser, seedSampleData } from './firestore.service';
 
 // ============================================================
 // Mock Auth System (used when Firebase is not configured)
 // ============================================================
 
-const MOCK_UID = 'demo-user-uid-001';
 const MOCK_EMAIL = 'demo@lifepilot.local';
 
 let mockAuthState = { user: null };
@@ -22,9 +21,24 @@ function notifyMockListeners() {
   mockAuthListeners.forEach((cb) => cb(mockAuthState.user));
 }
 
+/**
+ * Generate a stable mock UID for a given email so that signing in with the
+ * same email returns the same local data.
+ */
+function getMockUid(email) {
+  const input = email || MOCK_EMAIL;
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
+    hash |= 0;
+  }
+  return `mock-${Math.abs(hash).toString(16)}`;
+}
+
 function createMockUser(email) {
+  const uid = getMockUid(email);
   return {
-    uid: MOCK_UID,
+    uid,
     email: email || MOCK_EMAIL,
     displayName: 'Demo User',
     isMock: true,
@@ -39,6 +53,7 @@ export async function signUp(email, password) {
   if (!isFirebaseConfigured || !auth) {
     const user = createMockUser(email);
     seedMockUser(user.uid, email); // Create user record in mock store
+    seedSampleData(user.uid, email); // Seed sample data for a richer first experience
     mockAuthState.user = user;
     notifyMockListeners();
     return user;
